@@ -4,6 +4,7 @@ import axios from 'axios'
 const API_URL = process.env.GROWTHSTATION_API_URL || 'https://growthstation.app/api/v1'
 const API_KEY = process.env.GROWTHSTATION_API_KEY || '8bc7f25d967d79bd55d8e0acabdb8e2bd9391120'
 
+// API Route para proxy da API do Growthstation (resolve CORS)
 export async function GET(request: NextRequest) {
   try {
     console.log('Growthstation API Proxy: GET /api/growthstation/performance')
