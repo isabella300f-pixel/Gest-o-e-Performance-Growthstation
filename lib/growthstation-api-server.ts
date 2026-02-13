@@ -30,18 +30,44 @@ class GrowthstationAPIServer {
 
   private async request<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
     try {
-      const response = await axios.get<T>(`${this.baseURL}${endpoint}`, {
-        params: {
-          ...params,
-          apiKey: this.apiKey,
-        },
+      const url = `${this.baseURL}${endpoint}`
+      const requestParams = {
+        ...params,
+        apiKey: this.apiKey,
+      }
+
+      console.log('Growthstation API Request:', {
+        url,
+        hasApiKey: !!this.apiKey,
+        params: { ...requestParams, apiKey: '***' },
+      })
+
+      const response = await axios.get<T>(url, {
+        params: requestParams,
         headers: {
           'Content-Type': 'application/json',
         },
+        timeout: 30000,
+        validateStatus: (status) => status < 500, // Não lançar erro para 4xx
       })
+
+      if (response.status >= 400) {
+        console.error('Growthstation API Error Response:', {
+          status: response.status,
+          data: response.data,
+          url,
+        })
+        throw new Error(`API returned ${response.status}: ${JSON.stringify(response.data)}`)
+      }
+
       return response.data
     } catch (error: any) {
-      console.error('Growthstation API Error:', error.response?.data || error.message)
+      console.error('Growthstation API Error:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        url: error.config?.url,
+      })
       throw new Error(`API Error: ${error.response?.data?.message || error.message}`)
     }
   }

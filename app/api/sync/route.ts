@@ -64,6 +64,16 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   try {
+    // Verificar variáveis de ambiente
+    const apiUrl = process.env.GROWTHSTATION_API_URL
+    const apiKey = process.env.GROWTHSTATION_API_KEY
+    
+    console.log('GET /api/sync - Environment check:', {
+      hasApiUrl: !!apiUrl,
+      hasApiKey: !!apiKey,
+      apiUrl: apiUrl?.substring(0, 30) + '...',
+    })
+
     // Buscar dados da API do Growthstation (server-side)
     const performanceData = await growthstationAPIServer.getPerformanceData()
 
@@ -76,10 +86,30 @@ export async function GET(request: Request) {
       },
     })
   } catch (error: any) {
-    console.error('Sync GET error:', error)
+    console.error('Sync GET error:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      url: error.config?.url,
+      stack: error.stack,
+    })
+    
+    // Retornar erro mais detalhado
     return NextResponse.json(
-      { error: 'Erro ao buscar dados da API', details: error.message },
-      { status: 500 }
+      { 
+        error: 'Erro ao buscar dados da API',
+        details: error.message,
+        apiError: error.response?.data,
+        status: error.response?.status,
+      },
+      { 
+        status: error.response?.status || 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        },
+      }
     )
   }
 }
