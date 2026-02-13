@@ -103,6 +103,15 @@ class GrowthstationAPIServer {
       const leads = leadsResponse?.data || []
 
       console.log(`✅ Found ${prospections.length} prospections and ${leads.length} leads`)
+      console.log('📋 Sample prospection:', prospections[0] ? {
+        id: prospections[0].id,
+        hasResponsible: !!prospections[0].responsible,
+        responsible: prospections[0].responsible ? {
+          id: prospections[0].responsible.id,
+          name: `${prospections[0].responsible.firstName || ''} ${prospections[0].responsible.lastName || ''}`.trim(),
+        } : null,
+        status: prospections[0].status,
+      } : 'No prospections')
 
       if (prospections.length === 0) {
         console.warn('⚠️ Nenhuma prospecção encontrada. A API retornou dados vazios.')
@@ -130,15 +139,24 @@ class GrowthstationAPIServer {
       }> = {}
 
       // Processar prospecções
+      let prospectionsWithoutResponsible = 0
       prospections.forEach((prospection: any) => {
         const responsible = prospection.responsible
         if (!responsible) {
-          console.warn('⚠️ Prospecção sem responsável:', prospection.id)
+          prospectionsWithoutResponsible++
+          if (prospectionsWithoutResponsible <= 3) {
+            console.warn('⚠️ Prospecção sem responsável:', prospection.id, prospection.status)
+          }
           return
         }
 
         const userId = responsible.id
         const userName = `${responsible.firstName || ''} ${responsible.lastName || ''}`.trim() || responsible.email || 'Unknown'
+        
+        if (!userId) {
+          console.warn('⚠️ Prospecção com responsável sem ID:', prospection.id)
+          return
+        }
 
         if (!byUser[userId]) {
           byUser[userId] = {
@@ -201,6 +219,21 @@ class GrowthstationAPIServer {
       })
 
       console.log(`📈 Processed data for ${Object.keys(byUser).length} users`)
+      console.log(`⚠️ Prospecções sem responsável: ${prospectionsWithoutResponsible} de ${prospections.length}`)
+      
+      if (Object.keys(byUser).length === 0) {
+        console.error('❌ Nenhum usuário encontrado após processamento!')
+        console.log('Debug info:', {
+          totalProspections: prospections.length,
+          prospectionsWithoutResponsible,
+          sampleProspection: prospections[0] ? {
+            id: prospections[0].id,
+            hasResponsible: !!prospections[0].responsible,
+            responsibleKeys: prospections[0].responsible ? Object.keys(prospections[0].responsible) : [],
+          } : null,
+        })
+        return { data: [] }
+      }
 
       // Converter para formato esperado
       const performanceData: GrowthstationPerformance[] = Object.values(byUser).map((user) => {
