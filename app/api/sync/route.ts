@@ -127,10 +127,19 @@ export async function GET(request: Request) {
     })
 
     // Buscar dados da API do Growthstation (server-side)
+    console.log('📡 Iniciando busca de dados da API Growthstation...')
     const performanceData = await growthstationAPIServer.getPerformanceData()
+    
+    console.log('📦 Dados recebidos da API:', {
+      hasData: !!performanceData,
+      hasDataArray: !!performanceData?.data,
+      dataLength: performanceData?.data?.length || 0,
+      sample: performanceData?.data?.slice(0, 2),
+    })
 
     // Se não houver dados, retornar estrutura vazia ao invés de erro
-    if (!performanceData || !performanceData.data) {
+    if (!performanceData || !performanceData.data || performanceData.data.length === 0) {
+      console.warn('⚠️ Nenhum dado retornado da API Growthstation')
       return NextResponse.json(
         {
           data: [],
@@ -147,6 +156,7 @@ export async function GET(request: Request) {
       )
     }
 
+    console.log(`✅ Retornando ${performanceData.data.length} registros de performance`)
     return NextResponse.json(performanceData, {
       status: 200,
       headers: {

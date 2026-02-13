@@ -34,14 +34,28 @@ class GrowthstationAPI {
         finalUrl = `${url}?${searchParams.toString()}`
       }
 
+      console.log('🌐 Chamando API:', finalUrl)
       const response = await axios.get<T>(finalUrl, {
         headers: {
           'Content-Type': 'application/json',
         },
       })
+      
+      console.log('📥 Resposta da API:', {
+        status: response.status,
+        hasData: !!response.data,
+        dataKeys: response.data ? Object.keys(response.data) : [],
+        dataLength: (response.data as any)?.data?.length || 0,
+      })
+      
       return response.data
     } catch (error: any) {
-      console.error('Growthstation API Error:', error.response?.data || error.message)
+      console.error('❌ Growthstation API Error:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        url: error.config?.url,
+      })
       throw new Error(`API Error: ${error.response?.data?.message || error.message}`)
     }
   }

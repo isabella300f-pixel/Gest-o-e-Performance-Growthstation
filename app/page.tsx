@@ -27,16 +27,29 @@ export default function Home() {
       // Buscar dados da API do Growthstation
       let performanceData
       try {
+        console.log('🔄 Buscando dados da API...')
         performanceData = await growthstationAPI.getPerformanceData()
+        console.log('📊 Dados recebidos:', {
+          hasData: !!performanceData,
+          hasDataArray: !!performanceData?.data,
+          dataLength: performanceData?.data?.length || 0,
+        })
       } catch (apiError: any) {
-        console.warn('Erro ao buscar da API:', apiError.message)
+        console.error('❌ Erro ao buscar da API:', {
+          message: apiError.message,
+          stack: apiError.stack,
+        })
         // Continuar - vamos usar dados do Supabase como fallback
         performanceData = null
       }
       
       // Se não houver dados da API, usar dados já salvos no Supabase
       if (!performanceData || !performanceData.data || performanceData.data.length === 0) {
-        console.warn('Nenhum dado retornado da API - usando dados do Supabase como fallback')
+        console.warn('⚠️ Nenhum dado retornado da API - usando dados do Supabase como fallback', {
+          performanceData,
+          hasData: !!performanceData,
+          dataLength: performanceData?.data?.length || 0,
+        })
         
         // Buscar dados mais recentes do Supabase
         const { data: supabaseData, error: supabaseError } = await supabase
