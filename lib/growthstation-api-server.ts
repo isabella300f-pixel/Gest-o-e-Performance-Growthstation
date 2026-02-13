@@ -1,7 +1,7 @@
 import axios from 'axios'
 
-// Usar API route do Next.js para evitar CORS
-const API_BASE = typeof window !== 'undefined' ? window.location.origin : ''
+const API_URL = process.env.GROWTHSTATION_API_URL || 'https://growthstation.app/api/v1'
+const API_KEY = process.env.GROWTHSTATION_API_KEY || '8bc7f25d967d79bd55d8e0acabdb8e2bd9391120'
 
 export interface GrowthstationPerformance {
   nome: string
@@ -19,21 +19,22 @@ export interface GrowthstationResponse {
   total?: GrowthstationPerformance
 }
 
-class GrowthstationAPI {
+class GrowthstationAPIServer {
+  private apiKey: string
+  private baseURL: string
+
+  constructor() {
+    this.apiKey = API_KEY
+    this.baseURL = API_URL
+  }
+
   private async request<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
     try {
-      // Usar API route do Next.js (server-side proxy) para evitar CORS
-      const url = new URL(`${API_BASE}/api/growthstation${endpoint}`)
-      
-      if (params) {
-        Object.keys(params).forEach((key) => {
-          if (params[key] !== undefined && params[key] !== null) {
-            url.searchParams.append(key, params[key].toString())
-          }
-        })
-      }
-
-      const response = await axios.get<T>(url.toString(), {
+      const response = await axios.get<T>(`${this.baseURL}${endpoint}`, {
+        params: {
+          ...params,
+          apiKey: this.apiKey,
+        },
         headers: {
           'Content-Type': 'application/json',
         },
@@ -70,5 +71,5 @@ class GrowthstationAPI {
   }
 }
 
-export const growthstationAPI = new GrowthstationAPI()
+export const growthstationAPIServer = new GrowthstationAPIServer()
 

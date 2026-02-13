@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server'
-import { growthstationAPI } from '@/lib/growthstation-api'
+import { growthstationAPIServer } from '@/lib/growthstation-api-server'
 import { supabase } from '@/lib/supabase'
 import { processPerformanceData } from '@/lib/data-processor'
 
 export async function POST(request: Request) {
   try {
-    // Buscar dados da API do Growthstation
-    const performanceData = await growthstationAPI.getPerformanceData()
+    // Buscar dados da API do Growthstation (server-side)
+    const performanceData = await growthstationAPIServer.getPerformanceData()
 
     // Processar dados
     const processed = processPerformanceData(performanceData.data || [])
