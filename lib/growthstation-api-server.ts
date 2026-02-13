@@ -102,18 +102,40 @@ class GrowthstationAPIServer {
   }
 
   /**
-   * Busca todos os dados de um endpoint usando paginação
+   * Busca dados de um endpoint usando paginação otimizada
+   * Limita a 5 páginas (500 registros) para evitar timeout
    */
-  private async fetchAllPages(endpoint: string, maxPages: number = 10): Promise<any[]> {
+  private async fetchAllPages(endpoint: string, maxPages: number = 5, dateFrom?: string, dateTo?: string): Promise<any[]> {
     const allData: any[] = []
     let page = 1
     const limit = 100 // Máximo permitido pela API
+    const startTime = Date.now()
+    const maxExecutionTime = 8000 // 8 segundos máximo para evitar timeout
+    
+    // Parâmetros base
+    const baseParams: Record<string, any> = {
+      limit,
+    }
+    
+    // Adicionar filtros de data se fornecidos
+    if (dateFrom) {
+      baseParams.dateFrom = dateFrom
+    }
+    if (dateTo) {
+      baseParams.dateTo = dateTo
+    }
     
     while (page <= maxPages) {
+      // Verificar timeout antes de fazer a próxima requisição
+      if (Date.now() - startTime > maxExecutionTime) {
+        console.warn(`⏱️ Tempo de execução próximo do limite. Retornando ${allData.length} registros já obtidos.`)
+        break
+      }
+      
       try {
-        console.log(`📄 Buscando página ${page} de ${endpoint}...`)
+        console.log(`📄 Buscando página ${page}/${maxPages} de ${endpoint}...`)
         const response = await this.request<any>(endpoint, {
-          limit,
+          ...baseParams,
           page,
         })
         
@@ -135,18 +157,30 @@ class GrowthstationAPIServer {
           break
         }
         
+        // Se não há mais dados suficientes para preencher uma página, parar
+        if (pageData.length < limit) {
+          console.log(`✅ Última página completa. Total: ${allData.length} registros`)
+          break
+        }
+        
         page++
       } catch (error: any) {
         console.error(`❌ Erro ao buscar página ${page} de ${endpoint}:`, error.message)
         // Se for erro 400, pode ser que o limite seja muito alto ou página inválida
-        if (error.response?.status === 400) {
+        if (error.response?.status === 400 || error.message?.includes('400')) {
           console.warn('⚠️ Erro 400 - parando paginação')
+          break
+        }
+        // Se já temos dados, retornar o que temos ao invés de falhar completamente
+        if (allData.length > 0) {
+          console.warn(`⚠️ Erro na página ${page}, mas retornando ${allData.length} registros já obtidos`)
           break
         }
         throw error
       }
     }
     
+    console.log(`✅ Paginação concluída: ${allData.length} registros em ${page - 1} páginas`)
     return allData
   }
 
@@ -157,11 +191,28 @@ class GrowthstationAPIServer {
       console.log('📊 Fetching performance data from GS Engage API...')
       console.log('API URL:', this.baseURL)
       
-      // Buscar todas as prospecções usando paginação
-      const prospections = await this.fetchAllPages('/prospections', 20)
+      // Se não há filtro de data, buscar apenas últimos 90 dias para otimizar
+      let effectiveDateFrom = dateFrom
+      let effectiveDateTo = dateTo
       
-      // Buscar todos os leads usando paginação
-      const leads = await this.fetchAllPages('/leads', 20)
+      if (!effectiveDateFrom) {
+        const date = new Date()
+        date.setDate(date.getDate() - 90) // Últimos 90 dias
+        effectiveDateFrom = date.toISOString().split('T')[0]
+        console.log(`📅 Sem filtro de data fornecido. Usando últimos 90 dias: ${effectiveDateFrom}`)
+      }
+      
+      if (!effectiveDateTo) {
+        effectiveDateTo = new Date().toISOString().split('T')[0]
+      }
+      
+      // Buscar prospecções e leads em paralelo para economizar tempo
+      // Limitar a 5 páginas (500 registros) para evitar timeout
+      console.log('🔄 Buscando prospecções e leads em paralelo...')
+      const [prospections, leads] = await Promise.all([
+        this.fetchAllPages('/prospections', 5, effectiveDateFrom, effectiveDateTo),
+        this.fetchAllPages('/leads', 5, effectiveDateFrom, effectiveDateTo),
+      ])
 
       console.log(`✅ Found ${prospections.length} prospections and ${leads.length} leads`)
       

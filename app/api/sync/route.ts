@@ -5,8 +5,24 @@ import { processPerformanceData } from '@/lib/data-processor'
 
 export async function POST(request: Request) {
   try {
+    // Extrair parâmetros de body para filtros de data (se fornecidos)
+    let dateFrom: string | undefined
+    let dateTo: string | undefined
+    
+    try {
+      const body = await request.json().catch(() => ({}))
+      dateFrom = body.dateFrom || undefined
+      dateTo = body.dateTo || undefined
+    } catch {
+      // Se não houver body, usar undefined
+    }
+
     // Buscar dados da API do Growthstation (server-side)
-    const performanceData = await growthstationAPIServer.getPerformanceData()
+    console.log('📡 POST /api/sync - Iniciando sincronização...', { dateFrom, dateTo })
+    const startTime = Date.now()
+    const performanceData = await growthstationAPIServer.getPerformanceData(dateFrom, dateTo)
+    const executionTime = Date.now() - startTime
+    console.log(`⏱️ Tempo de execução: ${executionTime}ms`)
 
     // Processar dados - extrair métricas detalhadas diretamente dos dados da API
     const performanceItems = performanceData.data || []
@@ -120,15 +136,25 @@ export async function GET(request: Request) {
       )
     }
 
+    // Extrair parâmetros de query para filtros de data
+    const { searchParams } = new URL(request.url)
+    const dateFrom = searchParams.get('dateFrom') || undefined
+    const dateTo = searchParams.get('dateTo') || undefined
+
     console.log('GET /api/sync - Environment check:', {
       hasApiUrl: !!apiUrl,
       hasApiKey: !!apiKey,
       apiUrl: apiUrl?.substring(0, 50),
+      dateFrom,
+      dateTo,
     })
 
     // Buscar dados da API do Growthstation (server-side)
     console.log('📡 Iniciando busca de dados da API Growthstation...')
-    const performanceData = await growthstationAPIServer.getPerformanceData()
+    const startTime = Date.now()
+    const performanceData = await growthstationAPIServer.getPerformanceData(dateFrom, dateTo)
+    const executionTime = Date.now() - startTime
+    console.log(`⏱️ Tempo de execução: ${executionTime}ms`)
     
     console.log('📦 Dados recebidos da API:', {
       hasData: !!performanceData,
@@ -178,8 +204,11 @@ export async function GET(request: Request) {
     let errorMessage = error.message || 'Erro desconhecido'
     let errorDetails = ''
     
-    // Se for erro 400, pode ser problema de parâmetros
-    if (error.message?.includes('limit') || error.message?.includes('Parâmetro')) {
+    // Verificar se é timeout
+    if (error.message?.includes('timeout') || error.message?.includes('504') || error.code === 'ECONNABORTED') {
+      errorMessage = 'Timeout ao buscar dados'
+      errorDetails = 'A requisição demorou muito para responder. Tente novamente ou use filtros de data para reduzir a quantidade de dados.'
+    } else if (error.message?.includes('limit') || error.message?.includes('Parâmetro')) {
       errorMessage = 'Erro de validação da API'
       errorDetails = error.message
     } else if (error.response?.status === 400) {
@@ -194,6 +223,9 @@ export async function GET(request: Request) {
     } else if (error.response?.status === 429) {
       errorMessage = 'Limite de requisições excedido'
       errorDetails = 'Aguarde alguns instantes antes de tentar novamente'
+    } else if (error.response?.status === 504) {
+      errorMessage = 'Gateway Timeout'
+      errorDetails = 'O servidor demorou muito para responder. Tente novamente ou use filtros de data (dateFrom e dateTo) para reduzir a quantidade de dados buscados.'
     } else if (error.response?.status >= 500) {
       errorMessage = 'Erro no servidor da API'
       errorDetails = 'O servidor da API está temporariamente indisponível'
