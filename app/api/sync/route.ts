@@ -166,43 +166,49 @@ export async function GET(request: Request) {
       },
     })
   } catch (error: any) {
-    console.error('Sync GET error:', {
+    console.error('❌ Sync GET error:', {
       message: error.message,
       response: error.response?.data,
       status: error.response?.status,
       url: error.config?.url,
+      stack: error.stack,
     })
     
-    // Se for 404, significa que o endpoint não existe
-    if (error.response?.status === 404) {
-      return NextResponse.json(
-        { 
-          error: 'Endpoint da API não encontrado',
-          details: 'O endpoint /performance não existe na API do Growthstation',
-          suggestion: 'Verifique a documentação da API ou a URL base',
-          data: [], // Retornar array vazio para não quebrar a aplicação
-        },
-        { 
-          status: 200, // Retornar 200 com dados vazios ao invés de erro
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type',
-          },
-        }
-      )
+    // Extrair mensagem de erro mais amigável
+    let errorMessage = error.message || 'Erro desconhecido'
+    let errorDetails = ''
+    
+    // Se for erro 400, pode ser problema de parâmetros
+    if (error.message?.includes('limit') || error.message?.includes('Parâmetro')) {
+      errorMessage = 'Erro de validação da API'
+      errorDetails = error.message
+    } else if (error.response?.status === 400) {
+      errorMessage = 'Erro de validação na requisição'
+      errorDetails = error.response?.data?.message || error.message
+    } else if (error.response?.status === 401) {
+      errorMessage = 'Erro de autenticação'
+      errorDetails = 'Verifique se a API key está correta'
+    } else if (error.response?.status === 404) {
+      errorMessage = 'Endpoint não encontrado'
+      errorDetails = 'O endpoint solicitado não existe na API'
+    } else if (error.response?.status === 429) {
+      errorMessage = 'Limite de requisições excedido'
+      errorDetails = 'Aguarde alguns instantes antes de tentar novamente'
+    } else if (error.response?.status >= 500) {
+      errorMessage = 'Erro no servidor da API'
+      errorDetails = 'O servidor da API está temporariamente indisponível'
     }
     
-    // Retornar erro mais detalhado para outros casos
+    // Retornar erro mais detalhado
     return NextResponse.json(
       { 
-        error: 'Erro ao buscar dados da API',
-        details: error.message,
-        status: error.response?.status,
+        error: errorMessage,
+        details: errorDetails || error.message,
+        status: error.response?.status || 500,
         data: [], // Retornar array vazio para não quebrar a aplicação
       },
       { 
-        status: 200, // Retornar 200 com dados vazios ao invés de erro
+        status: 200, // Retornar 200 com dados vazios ao invés de erro para não quebrar o frontend
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',

@@ -60,12 +60,33 @@ class GrowthstationAPIServer {
       })
 
       if (response.status >= 400) {
+        const errorData = response.data
         console.error('Growthstation API Error Response:', {
           status: response.status,
-          data: response.data,
+          data: errorData,
           url,
         })
-        throw new Error(`API returned ${response.status}: ${JSON.stringify(response.data)}`)
+        
+        // Mensagem de erro mais amigável
+        let errorMessage = `API returned ${response.status}`
+        if (errorData?.query) {
+          // Erro de validação de parâmetros
+          const queryErrors = errorData.query
+          if (Array.isArray(queryErrors)) {
+            const limitError = queryErrors.find((e: any) => e.path?.includes('limit'))
+            if (limitError) {
+              errorMessage = `Parâmetro 'limit' inválido: ${limitError.message || 'deve ser <= 100'}`
+            } else {
+              errorMessage = `Erro de validação: ${queryErrors.map((e: any) => e.message).join(', ')}`
+            }
+          }
+        } else if (errorData?.error?.message) {
+          errorMessage = errorData.error.message
+        } else if (typeof errorData === 'string') {
+          errorMessage = errorData
+        }
+        
+        throw new Error(errorMessage)
       }
 
       return response.data
@@ -80,6 +101,55 @@ class GrowthstationAPIServer {
     }
   }
 
+  /**
+   * Busca todos os dados de um endpoint usando paginação
+   */
+  private async fetchAllPages(endpoint: string, maxPages: number = 10): Promise<any[]> {
+    const allData: any[] = []
+    let page = 1
+    const limit = 100 // Máximo permitido pela API
+    
+    while (page <= maxPages) {
+      try {
+        console.log(`📄 Buscando página ${page} de ${endpoint}...`)
+        const response = await this.request<any>(endpoint, {
+          limit,
+          page,
+        })
+        
+        const pageData = response?.data || []
+        const meta = response?.meta || {}
+        
+        if (pageData.length === 0) {
+          console.log(`✅ Todas as páginas buscadas. Total: ${allData.length} registros`)
+          break
+        }
+        
+        allData.push(...pageData)
+        console.log(`✅ Página ${page}: ${pageData.length} registros (Total: ${allData.length})`)
+        
+        // Verificar se há mais páginas
+        const totalPages = meta.totalPages || 1
+        if (page >= totalPages) {
+          console.log(`✅ Todas as páginas buscadas. Total: ${allData.length} registros`)
+          break
+        }
+        
+        page++
+      } catch (error: any) {
+        console.error(`❌ Erro ao buscar página ${page} de ${endpoint}:`, error.message)
+        // Se for erro 400, pode ser que o limite seja muito alto ou página inválida
+        if (error.response?.status === 400) {
+          console.warn('⚠️ Erro 400 - parando paginação')
+          break
+        }
+        throw error
+      }
+    }
+    
+    return allData
+  }
+
   async getPerformanceData(dateFrom?: string, dateTo?: string): Promise<GrowthstationResponse> {
     // A API do GS Engage não tem endpoint /performance
     // Vamos usar prospecções e leads para calcular métricas
@@ -87,31 +157,29 @@ class GrowthstationAPIServer {
       console.log('📊 Fetching performance data from GS Engage API...')
       console.log('API URL:', this.baseURL)
       
-      // Buscar prospecções para calcular métricas
-      const prospectionsResponse = await this.request<any>('/prospections', {
-        limit: 1000,
-        page: 1,
-      })
-
-      // Buscar leads para métricas adicionais
-      const leadsResponse = await this.request<any>('/leads', {
-        limit: 1000,
-        page: 1,
-      })
-
-      const prospections = prospectionsResponse?.data || []
-      const leads = leadsResponse?.data || []
+      // Buscar todas as prospecções usando paginação
+      const prospections = await this.fetchAllPages('/prospections', 20)
+      
+      // Buscar todos os leads usando paginação
+      const leads = await this.fetchAllPages('/leads', 20)
 
       console.log(`✅ Found ${prospections.length} prospections and ${leads.length} leads`)
-      console.log('📋 Sample prospection:', prospections[0] ? {
-        id: prospections[0].id,
-        hasResponsible: !!prospections[0].responsible,
-        responsible: prospections[0].responsible ? {
-          id: prospections[0].responsible.id,
-          name: `${prospections[0].responsible.firstName || ''} ${prospections[0].responsible.lastName || ''}`.trim(),
-        } : null,
-        status: prospections[0].status,
-      } : 'No prospections')
+      
+      if (prospections.length > 0) {
+        console.log('📋 Sample prospection:', {
+          id: prospections[0].id,
+          hasResponsible: !!prospections[0].responsible,
+          responsible: prospections[0].responsible ? {
+            id: prospections[0].responsible.id,
+            name: `${prospections[0].responsible.firstName || ''} ${prospections[0].responsible.lastName || ''}`.trim(),
+            email: prospections[0].responsible.email,
+          } : null,
+          status: prospections[0].status,
+          hasMeeting: !!prospections[0].meeting,
+        })
+      } else {
+        console.warn('⚠️ Nenhuma prospecção encontrada na API')
+      }
 
       if (prospections.length === 0) {
         console.warn('⚠️ Nenhuma prospecção encontrada. A API retornou dados vazios.')
