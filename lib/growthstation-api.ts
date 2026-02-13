@@ -2,12 +2,21 @@ import axios from 'axios'
 
 export interface GrowthstationPerformance {
   nome: string
+  userId?: string // ID real do usuário da API
   atividades_diarias: number
   on_time: number
   leads_iniciados: number
   leads_finalizados: number
   taxa_conversao: number
   ganhos: number
+  // Métricas detalhadas adicionais
+  calls?: number
+  meetingsScheduled?: number
+  meetingsCompleted?: number
+  contracts?: number
+  noshow?: number
+  closing?: number
+  leadTime?: number
 }
 
 export interface GrowthstationResponse {
