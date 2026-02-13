@@ -60,7 +60,7 @@ class GrowthstationAPIServer {
       })
 
       if (response.status >= 400) {
-        const errorData = response.data
+        const errorData: any = response.data
         console.error('Growthstation API Error Response:', {
           status: response.status,
           data: errorData,
