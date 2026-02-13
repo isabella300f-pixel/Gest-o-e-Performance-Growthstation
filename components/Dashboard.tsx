@@ -7,6 +7,10 @@ import PerformanceChart from './PerformanceChart'
 import IndividualPerformance from './IndividualPerformance'
 import LeadTimeAnalysis from './LeadTimeAnalysis'
 import ConversionFunnel from './ConversionFunnel'
+import StrategicInsights from './StrategicInsights'
+import TrendAnalysis from './TrendAnalysis'
+import EfficiencyMetrics from './EfficiencyMetrics'
+import PerformanceComparison from './PerformanceComparison'
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
 export default function Dashboard() {
@@ -121,23 +125,33 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Filtro de Data */}
-      <div className="bg-white p-4 rounded-lg shadow-sm">
-        <div className="flex items-center gap-4">
-          <label className="text-sm font-medium text-gray-700">Período:</label>
-          <input
-            type="date"
-            value={dateRange.start}
-            onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-            className="border border-gray-300 rounded-md px-3 py-2 text-sm"
-          />
-          <span className="text-gray-500">até</span>
-          <input
-            type="date"
-            value={dateRange.end}
-            onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-            className="border border-gray-300 rounded-md px-3 py-2 text-sm"
-          />
+      {/* Filtro de Data - Melhorado */}
+      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <label className="text-sm font-semibold text-gray-700">Período de Análise:</label>
+            </div>
+            <input
+              type="date"
+              value={dateRange.start}
+              onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
+              className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            />
+            <span className="text-gray-400 font-medium">até</span>
+            <input
+              type="date"
+              value={dateRange.end}
+              onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
+              className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+            />
+          </div>
+          <div className="text-sm text-gray-600">
+            <span className="font-medium">{data.length}</span> registros encontrados
+          </div>
         </div>
       </div>
 
@@ -154,6 +168,21 @@ export default function Dashboard() {
         onTime={avgOnTime}
       />
 
+      {/* Insights Estratégicos */}
+      <StrategicInsights
+        conversionRate={avgConversionRate}
+        avgLeadTime={avgLeadTime}
+        meetingsCompleted={aggregated.meetingsCompleted}
+        meetingsScheduled={aggregated.meetingsScheduled}
+        contracts={aggregated.contracts}
+        closing={aggregated.closing}
+        noshow={aggregated.noshow}
+        onTime={avgOnTime}
+      />
+
+      {/* Análise de Tendências */}
+      <TrendAnalysis data={data} />
+
       {/* Gráficos de Performance */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <PerformanceChart data={data} />
@@ -164,6 +193,20 @@ export default function Dashboard() {
           closing={aggregated.closing}
         />
       </div>
+
+      {/* Métricas de Eficiência */}
+      <EfficiencyMetrics
+        meetingsScheduled={aggregated.meetingsScheduled}
+        meetingsCompleted={aggregated.meetingsCompleted}
+        contracts={aggregated.contracts}
+        closing={aggregated.closing}
+        calls={aggregated.calls}
+        avgLeadTime={avgLeadTime}
+        conversionRate={avgConversionRate}
+      />
+
+      {/* Comparação de Performance */}
+      <PerformanceComparison data={data} />
 
       {/* Análise de Lead Time */}
       <LeadTimeAnalysis data={data} />
