@@ -25,12 +25,36 @@ export default function Home() {
       setError(null)
 
       // Buscar dados da API do Growthstation
-      const performanceData = await growthstationAPI.getPerformanceData()
+      let performanceData
+      try {
+        performanceData = await growthstationAPI.getPerformanceData()
+      } catch (apiError: any) {
+        console.warn('Erro ao buscar da API:', apiError.message)
+        // Continuar - vamos usar dados do Supabase como fallback
+        performanceData = null
+      }
       
-      // Se não houver dados, não é erro crítico - apenas não sincroniza
+      // Se não houver dados da API, usar dados já salvos no Supabase
       if (!performanceData || !performanceData.data || performanceData.data.length === 0) {
-        console.warn('Nenhum dado retornado da API - pode ser que o endpoint não exista ou esteja temporariamente indisponível')
-        setError('API não retornou dados. Verifique se o endpoint está correto ou se a API está disponível.')
+        console.warn('Nenhum dado retornado da API - usando dados do Supabase como fallback')
+        
+        // Buscar dados mais recentes do Supabase
+        const { data: supabaseData, error: supabaseError } = await supabase
+          .from('performance_data')
+          .select('*')
+          .order('date', { ascending: false })
+          .limit(100)
+        
+        if (supabaseError) {
+          console.error('Erro ao buscar do Supabase:', supabaseError)
+          setError('Não foi possível buscar dados. A API não está disponível e não há dados salvos.')
+        } else if (supabaseData && supabaseData.length > 0) {
+          setError(null) // Limpar erro se houver dados do Supabase
+          console.log(`Usando ${supabaseData.length} registros do Supabase`)
+        } else {
+          setError('API não retornou dados e não há dados salvos. Verifique a configuração da API do Growthstation.')
+        }
+        
         setLastSync(new Date())
         return
       }
@@ -75,13 +99,32 @@ export default function Home() {
       setLastSync(new Date())
     } catch (err: any) {
       console.error('Sync error:', err)
+      
+      // Tentar buscar dados do Supabase como fallback
+      try {
+        const { data: supabaseData } = await supabase
+          .from('performance_data')
+          .select('*')
+          .order('date', { ascending: false })
+          .limit(100)
+        
+        if (supabaseData && supabaseData.length > 0) {
+          setError(null) // Limpar erro se houver dados do Supabase
+          console.log(`Usando ${supabaseData.length} registros do Supabase como fallback`)
+          setLastSync(new Date())
+          return
+        }
+      } catch (supabaseError) {
+        console.error('Erro ao buscar do Supabase:', supabaseError)
+      }
+      
       // Se for erro de API, mostrar mensagem mais amigável
       if (err.message?.includes('404') || err.message?.includes('not found')) {
-        setError('Endpoint da API não encontrado. Verifique a configuração da API do Growthstation.')
+        setError('Endpoint da API não encontrado. Usando dados salvos anteriormente, se disponíveis.')
       } else if (err.message?.includes('500')) {
-        setError('Erro no servidor ao buscar dados. Tente novamente mais tarde.')
+        setError('Erro no servidor ao buscar dados. Usando dados salvos anteriormente, se disponíveis.')
       } else {
-        setError(err.message || 'Erro ao sincronizar dados')
+        setError(err.message || 'Erro ao sincronizar dados. Verificando dados salvos...')
       }
     } finally {
       setLoading(false)
