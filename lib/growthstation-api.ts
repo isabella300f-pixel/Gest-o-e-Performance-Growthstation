@@ -34,6 +34,7 @@ class GrowthstationAPI {
       }
       
       // Adicionar parâmetros de query
+      let finalUrl = url
       if (params && Object.keys(params).length > 0) {
         const searchParams = new URLSearchParams()
         Object.keys(params).forEach((key) => {
@@ -41,18 +42,10 @@ class GrowthstationAPI {
             searchParams.append(key, params[key].toString())
           }
         })
-        url += `?${searchParams.toString()}`
-      }
-      
-      if (params) {
-        Object.keys(params).forEach((key) => {
-          if (params[key] !== undefined && params[key] !== null) {
-            url.searchParams.append(key, params[key].toString())
-          }
-        })
+        finalUrl = `${url}?${searchParams.toString()}`
       }
 
-      const response = await axios.get<T>(url, {
+      const response = await axios.get<T>(finalUrl, {
         headers: {
           'Content-Type': 'application/json',
         },
