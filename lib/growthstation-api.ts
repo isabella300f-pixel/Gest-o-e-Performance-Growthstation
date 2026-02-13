@@ -1,8 +1,5 @@
 import axios from 'axios'
 
-// Usar API route do Next.js para evitar CORS
-const API_BASE = typeof window !== 'undefined' ? window.location.origin : ''
-
 export interface GrowthstationPerformance {
   nome: string
   atividades_diarias: number
@@ -23,7 +20,29 @@ class GrowthstationAPI {
   private async request<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
     try {
       // Usar API route do Next.js (server-side proxy) para evitar CORS
-      const url = new URL(`${API_BASE}/api/growthstation${endpoint}`)
+      // No cliente, sempre usa caminho relativo que será resolvido para o mesmo domínio
+      const basePath = '/api/growthstation'
+      let url: string
+      
+      if (typeof window !== 'undefined') {
+        // No cliente: usar caminho relativo (mesmo domínio)
+        url = `${basePath}${endpoint}`
+      } else {
+        // No servidor: usar URL completa se disponível
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        url = `${baseUrl}${basePath}${endpoint}`
+      }
+      
+      // Adicionar parâmetros de query
+      if (params && Object.keys(params).length > 0) {
+        const searchParams = new URLSearchParams()
+        Object.keys(params).forEach((key) => {
+          if (params[key] !== undefined && params[key] !== null) {
+            searchParams.append(key, params[key].toString())
+          }
+        })
+        url += `?${searchParams.toString()}`
+      }
       
       if (params) {
         Object.keys(params).forEach((key) => {
@@ -33,7 +52,7 @@ class GrowthstationAPI {
         })
       }
 
-      const response = await axios.get<T>(url.toString(), {
+      const response = await axios.get<T>(url, {
         headers: {
           'Content-Type': 'application/json',
         },
