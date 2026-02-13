@@ -60,6 +60,7 @@ export async function POST(request: Request) {
     const performanceItems = performanceData.data
     
     // Preparar dados adicionais para o processador
+    // IMPORTANTE: Os dados já vêm calculados da API, então precisamos preservá-los
     const additionalData: {
       calls: Record<string, number>
       meetings: Record<string, { scheduled: number; completed: number }>
@@ -76,46 +77,125 @@ export async function POST(request: Request) {
       leadTime: {},
     }
 
+    console.log(`📋 Preparando dados adicionais de ${performanceItems.length} itens...`)
     performanceItems.forEach((item) => {
-      const userId = item.nome.toLowerCase().replace(/\s+/g, '_')
-      if (item.calls !== undefined) additionalData.calls[userId] = item.calls
-      if (item.meetingsScheduled !== undefined || item.meetingsCompleted !== undefined) {
-        additionalData.meetings[userId] = {
-          scheduled: item.meetingsScheduled || 0,
-          completed: item.meetingsCompleted || 0,
-        }
+      // Usar userId da API se disponível, senão gerar a partir do nome
+      const userId = item.userId || item.nome.toLowerCase().replace(/\s+/g, '_')
+      
+      // Preservar todos os valores calculados da API
+      // Armazenar usando ambos os IDs para garantir compatibilidade
+      additionalData.calls[userId] = item.calls ?? 0
+      additionalData.meetings[userId] = {
+        scheduled: item.meetingsScheduled ?? 0,
+        completed: item.meetingsCompleted ?? 0,
       }
-      if (item.contracts !== undefined) additionalData.contracts[userId] = item.contracts
-      if (item.noshow !== undefined) additionalData.noshow[userId] = item.noshow
-      if (item.closing !== undefined) additionalData.closing[userId] = item.closing
-      if (item.leadTime !== undefined) additionalData.leadTime[userId] = item.leadTime
+      additionalData.contracts[userId] = item.contracts ?? 0
+      additionalData.noshow[userId] = item.noshow ?? 0
+      additionalData.closing[userId] = item.closing ?? 0
+      additionalData.leadTime[userId] = item.leadTime ?? 0
+      
+      // Se tiver userId da API, também armazenar usando o nome normalizado para compatibilidade
+      if (item.userId) {
+        const normalizedName = item.nome.toLowerCase().replace(/\s+/g, '_')
+        additionalData.calls[normalizedName] = item.calls ?? 0
+        additionalData.meetings[normalizedName] = {
+          scheduled: item.meetingsScheduled ?? 0,
+          completed: item.meetingsCompleted ?? 0,
+        }
+        additionalData.contracts[normalizedName] = item.contracts ?? 0
+        additionalData.noshow[normalizedName] = item.noshow ?? 0
+        additionalData.closing[normalizedName] = item.closing ?? 0
+        additionalData.leadTime[normalizedName] = item.leadTime ?? 0
+      }
+      
+      // Log para debug
+      if (performanceItems.indexOf(item) < 3) {
+        console.log(`📊 Dados para ${item.nome} (userId: ${userId}):`, {
+          calls: additionalData.calls[userId],
+          meetingsScheduled: additionalData.meetings[userId].scheduled,
+          meetingsCompleted: additionalData.meetings[userId].completed,
+          contracts: additionalData.contracts[userId],
+          noshow: additionalData.noshow[userId],
+          closing: additionalData.closing[userId],
+          leadTime: additionalData.leadTime[userId],
+        })
+      }
     })
 
     const processed = processPerformanceData(performanceItems, additionalData)
     console.log(`📊 Processando ${processed.individual.length} registros individuais`)
+    
+    // Log dos primeiros registros processados para debug
+    if (processed.individual.length > 0) {
+      console.log('📋 Primeiros registros processados:', processed.individual.slice(0, 3).map(item => ({
+        userName: item.userName,
+        calls: item.metrics.calls,
+        meetingsScheduled: item.metrics.meetingsScheduled,
+        meetingsCompleted: item.metrics.meetingsCompleted,
+        contractsGenerated: item.metrics.contractsGenerated,
+        noshow: item.metrics.noshow,
+        closing: item.metrics.closing,
+        leadTime: item.metrics.leadTime,
+      })))
+    }
 
     // Salvar no Supabase
     const today = new Date().toISOString().split('T')[0]
-    const records = processed.individual.map((item) => ({
-      user_id: item.userId,
-      user_name: item.userName,
-      date: today,
-      daily_activities: item.metrics.dailyActivities,
-      on_time: item.metrics.onTime,
-      leads_started: performanceItems.find(p => p.nome === item.userName)?.leads_iniciados || 0,
-      leads_finished: performanceItems.find(p => p.nome === item.userName)?.leads_finalizados || 0,
-      conversion_rate: item.metrics.conversionRate,
-      earnings: performanceItems.find(p => p.nome === item.userName)?.ganhos || 0,
-      calls: item.metrics.calls,
-      meetings_scheduled: item.metrics.meetingsScheduled,
-      meetings_completed: item.metrics.meetingsCompleted,
-      contracts_generated: item.metrics.contractsGenerated,
-      noshow: item.metrics.noshow,
-      closing: item.metrics.closing,
-      lead_time: item.metrics.leadTime,
-    }))
+    const records = processed.individual.map((item) => {
+      const apiItem = performanceItems.find(p => p.nome === item.userName)
+      
+      // Usar userId da API se disponível, senão usar o gerado do nome
+      const userId = apiItem?.userId || item.userId
+      
+      const record = {
+        user_id: userId,
+        user_name: item.userName,
+        date: today,
+        daily_activities: Number(item.metrics.dailyActivities) || 0,
+        on_time: Number(item.metrics.onTime) || 0,
+        leads_started: Number(apiItem?.leads_iniciados) || 0,
+        leads_finished: Number(apiItem?.leads_finalizados) || 0,
+        conversion_rate: Number(item.metrics.conversionRate) || 0,
+        earnings: Number(apiItem?.ganhos) || 0,
+        calls: Number(item.metrics.calls) || 0,
+        meetings_scheduled: Number(item.metrics.meetingsScheduled) || 0,
+        meetings_completed: Number(item.metrics.meetingsCompleted) || 0,
+        contracts_generated: Number(item.metrics.contractsGenerated) || 0,
+        noshow: Number(item.metrics.noshow) || 0,
+        closing: Number(item.metrics.closing) || 0,
+        lead_time: Number(item.metrics.leadTime) || 0,
+      }
+      
+      // Log para debug dos primeiros registros
+      if (processed.individual.indexOf(item) < 3) {
+        console.log(`💾 Registro para ${item.userName}:`, {
+          user_id: record.user_id,
+          calls: record.calls,
+          meetings_scheduled: record.meetings_scheduled,
+          meetings_completed: record.meetings_completed,
+          contracts_generated: record.contracts_generated,
+          noshow: record.noshow,
+          closing: record.closing,
+          lead_time: record.lead_time,
+        })
+      }
+      
+      return record
+    })
 
     console.log(`💾 Salvando ${records.length} registros no Supabase...`)
+    console.log('📋 Exemplo de registro a ser salvo:', records[0] ? {
+      user_id: records[0].user_id,
+      user_name: records[0].user_name,
+      date: records[0].date,
+      calls: records[0].calls,
+      meetings_scheduled: records[0].meetings_scheduled,
+      meetings_completed: records[0].meetings_completed,
+      contracts_generated: records[0].contracts_generated,
+      noshow: records[0].noshow,
+      closing: records[0].closing,
+      lead_time: records[0].lead_time,
+    } : 'Nenhum registro')
 
     // Upsert no Supabase
     const { error: supabaseError, data: supabaseResult } = await supabase

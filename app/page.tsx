@@ -68,11 +68,11 @@ export default function Home() {
       setLastSync(new Date())
       setSyncError(null)
       
-      // Atualizar dados do Dashboard após 1 segundo (dar tempo para o Supabase processar)
+      // Atualizar dados do Dashboard após 2 segundos (dar tempo para o Supabase processar)
       setTimeout(() => {
-        // O Dashboard já recarrega automaticamente quando os dados mudam
+        console.log('🔄 Disparando evento de refresh do Dashboard...')
         window.dispatchEvent(new Event('supabase:refresh'))
-      }, 1000)
+      }, 2000)
       
     } catch (err: any) {
       console.error('❌ Erro na sincronização:', err)

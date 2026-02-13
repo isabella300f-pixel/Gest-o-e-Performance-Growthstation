@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { supabase, PerformanceData } from '@/lib/supabase'
 import KPICards from './KPICards'
 import PerformanceChart from './PerformanceChart'
@@ -39,51 +39,73 @@ export default function Dashboard() {
       setLoading(true)
       console.log('📊 Carregando dados do Supabase...', { start: dateRange.start, end: dateRange.end })
       
-      const { data: performanceData, error } = await supabase
+      // Primeiro, buscar TODOS os dados disponíveis (sem filtro de data inicialmente)
+      // para garantir que sempre mostramos dados se existirem
+      const { data: allData, error: allError } = await supabase
         .from('performance_data')
         .select('*')
-        .gte('date', dateRange.start)
-        .lte('date', dateRange.end)
         .order('date', { ascending: false })
+        .limit(1000) // Buscar até 1000 registros
 
-      if (error) {
-        console.error('❌ Erro ao buscar do Supabase:', error)
-        throw error
+      if (allError) {
+        console.error('❌ Erro ao buscar do Supabase:', allError)
+        throw allError
       }
+
+      console.log(`📦 Total de registros no Supabase: ${allData?.length || 0}`)
       
-      console.log(`✅ ${performanceData?.length || 0} registros carregados do Supabase`)
-      setData(performanceData || [])
-      
-      // Se não houver dados no período, buscar dados mais recentes disponíveis
-      if (!performanceData || performanceData.length === 0) {
-        console.warn('⚠️ Nenhum dado no período selecionado. Buscando dados mais recentes...')
-        const { data: recentData } = await supabase
-          .from('performance_data')
-          .select('*')
-          .order('date', { ascending: false })
-          .limit(100)
+      if (allData && allData.length > 0) {
+        // Log dos primeiros registros para debug
+        console.log('📋 Primeiros registros:', allData.slice(0, 3).map(item => ({
+          user_name: item.user_name,
+          date: item.date,
+          calls: item.calls,
+          meetings_scheduled: item.meetings_scheduled,
+          contracts_generated: item.contracts_generated,
+        })))
         
-        if (recentData && recentData.length > 0) {
-          console.log(`✅ Usando ${recentData.length} registros mais recentes disponíveis`)
-          setData(recentData)
+        // Filtrar por período se necessário, mas sempre mostrar dados se existirem
+        const filteredData = allData.filter(item => {
+          const itemDate = new Date(item.date)
+          const startDate = new Date(dateRange.start)
+          const endDate = new Date(dateRange.end)
+          return itemDate >= startDate && itemDate <= endDate
+        })
+
+        if (filteredData.length > 0) {
+          console.log(`✅ ${filteredData.length} registros no período selecionado`)
+          setData(filteredData)
+        } else {
+          // Se não houver dados no período, usar todos os dados disponíveis
+          console.warn('⚠️ Nenhum dado no período selecionado. Usando todos os dados disponíveis.')
+          setData(allData)
         }
+      } else {
+        console.warn('⚠️ Nenhum dado encontrado no Supabase')
+        setData([])
       }
     } catch (error: any) {
       console.error('❌ Erro ao carregar dados:', error)
       // Tentar buscar dados sem filtro de data como fallback
       try {
-        const { data: fallbackData } = await supabase
+        const { data: fallbackData, error: fallbackError } = await supabase
           .from('performance_data')
           .select('*')
           .order('date', { ascending: false })
           .limit(100)
         
-        if (fallbackData && fallbackData.length > 0) {
+        if (fallbackError) {
+          console.error('❌ Erro no fallback:', fallbackError)
+        } else if (fallbackData && fallbackData.length > 0) {
           console.log(`✅ Usando ${fallbackData.length} registros como fallback`)
           setData(fallbackData)
+        } else {
+          console.warn('⚠️ Nenhum dado disponível no Supabase')
+          setData([])
         }
       } catch (fallbackError) {
         console.error('❌ Erro no fallback:', fallbackError)
+        setData([])
       }
     } finally {
       setLoading(false)
@@ -91,32 +113,57 @@ export default function Dashboard() {
   }
 
   // Calcular métricas agregadas
-  const aggregated = data.reduce(
-    (acc, item) => ({
-      calls: acc.calls + (item.calls || 0),
-      meetingsScheduled: acc.meetingsScheduled + (item.meetings_scheduled || 0),
-      meetingsCompleted: acc.meetingsCompleted + (item.meetings_completed || 0),
-      contracts: acc.contracts + (item.contracts_generated || 0),
-      noshow: acc.noshow + (item.noshow || 0),
-      closing: acc.closing + (item.closing || 0),
-      leadTime: acc.leadTime + (item.lead_time || 0),
-      conversionRate: acc.conversionRate + (item.conversion_rate || 0),
-      onTime: acc.onTime + (item.on_time || 0),
-      count: acc.count + 1,
-    }),
-    {
-      calls: 0,
-      meetingsScheduled: 0,
-      meetingsCompleted: 0,
-      contracts: 0,
-      noshow: 0,
-      closing: 0,
-      leadTime: 0,
-      conversionRate: 0,
-      onTime: 0,
-      count: 0,
-    }
-  )
+  const aggregated = useMemo(() => {
+    console.log('📊 Calculando métricas agregadas de', data.length, 'registros')
+    const result = data.reduce(
+      (acc, item) => {
+        const calls = Number(item.calls) || 0
+        const meetingsScheduled = Number(item.meetings_scheduled) || 0
+        const meetingsCompleted = Number(item.meetings_completed) || 0
+        const contracts = Number(item.contracts_generated) || 0
+        const noshow = Number(item.noshow) || 0
+        const closing = Number(item.closing) || 0
+        const leadTime = Number(item.lead_time) || 0
+        const conversionRate = Number(item.conversion_rate) || 0
+        const onTime = Number(item.on_time) || 0
+
+        return {
+          calls: acc.calls + calls,
+          meetingsScheduled: acc.meetingsScheduled + meetingsScheduled,
+          meetingsCompleted: acc.meetingsCompleted + meetingsCompleted,
+          contracts: acc.contracts + contracts,
+          noshow: acc.noshow + noshow,
+          closing: acc.closing + closing,
+          leadTime: acc.leadTime + leadTime,
+          conversionRate: acc.conversionRate + conversionRate,
+          onTime: acc.onTime + onTime,
+          count: acc.count + 1,
+        }
+      },
+      {
+        calls: 0,
+        meetingsScheduled: 0,
+        meetingsCompleted: 0,
+        contracts: 0,
+        noshow: 0,
+        closing: 0,
+        leadTime: 0,
+        conversionRate: 0,
+        onTime: 0,
+        count: 0,
+      }
+    )
+    
+    console.log('📈 Métricas calculadas:', {
+      calls: result.calls,
+      meetingsScheduled: result.meetingsScheduled,
+      meetingsCompleted: result.meetingsCompleted,
+      contracts: result.contracts,
+      count: result.count,
+    })
+    
+    return result
+  }, [data])
 
   const avgLeadTime = aggregated.count > 0 ? aggregated.leadTime / aggregated.count : 0
   const avgConversionRate = aggregated.count > 0 ? aggregated.conversionRate / aggregated.count : 0

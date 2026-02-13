@@ -5,6 +5,7 @@ const API_KEY = process.env.GROWTHSTATION_API_KEY || '8bc7f25d967d79bd55d8e0acab
 
 export interface GrowthstationPerformance {
   nome: string
+  userId?: string // ID real do usuário da API
   atividades_diarias: number
   on_time: number
   leads_iniciados: number
@@ -105,7 +106,7 @@ class GrowthstationAPIServer {
    * Busca dados de um endpoint usando paginação otimizada
    * Limita a 5 páginas (500 registros) para evitar timeout
    */
-  private async fetchAllPages(endpoint: string, maxPages: number = 5, dateFrom?: string, dateTo?: string): Promise<any[]> {
+  private async fetchAllPages(endpoint: string, maxPages: number = 100, dateFrom?: string, dateTo?: string): Promise<any[]> {
     const allData: any[] = []
     let page = 1
     const limit = 100 // Máximo permitido pela API
@@ -152,6 +153,9 @@ class GrowthstationAPIServer {
         
         // Verificar se há mais páginas
         const totalPages = meta.totalPages || 1
+        console.log(`📄 Meta: página ${page} de ${totalPages} (total: ${meta.total || 'N/A'} registros)`)
+        
+        // Se chegamos na última página, parar
         if (page >= totalPages) {
           console.log(`✅ Todas as páginas buscadas. Total: ${allData.length} registros`)
           break
@@ -160,6 +164,12 @@ class GrowthstationAPIServer {
         // Se não há mais dados suficientes para preencher uma página, parar
         if (pageData.length < limit) {
           console.log(`✅ Última página completa. Total: ${allData.length} registros`)
+          break
+        }
+        
+        // Se atingimos o limite de páginas, parar (mas logar aviso)
+        if (page >= maxPages) {
+          console.warn(`⚠️ Limite de ${maxPages} páginas atingido. Total obtido: ${allData.length} de ${meta.total || 'N/A'} registros`)
           break
         }
         
@@ -207,11 +217,12 @@ class GrowthstationAPIServer {
       }
       
       // Buscar prospecções e leads em paralelo para economizar tempo
-      // Limitar a 5 páginas (500 registros) para evitar timeout
+      // Aumentar limite para buscar mais dados (até 100 páginas = 10000 registros)
+      // O código vai parar automaticamente quando não houver mais páginas ou atingir o limite
       console.log('🔄 Buscando prospecções e leads em paralelo...')
       const [prospections, leads] = await Promise.all([
-        this.fetchAllPages('/prospections', 5, effectiveDateFrom, effectiveDateTo),
-        this.fetchAllPages('/leads', 5, effectiveDateFrom, effectiveDateTo),
+        this.fetchAllPages('/prospections', 100, effectiveDateFrom, effectiveDateTo),
+        this.fetchAllPages('/leads', 100, effectiveDateFrom, effectiveDateTo),
       ])
 
       console.log(`✅ Found ${prospections.length} prospections and ${leads.length} leads`)
@@ -396,6 +407,7 @@ class GrowthstationAPIServer {
         
         return {
           nome: user.userName,
+          userId: user.userId, // Incluir userId real para garantir consistência
           atividades_diarias: dailyActivities,
           on_time: 95, // Placeholder - será calculado quando houver dados de atividades com timestamps
           leads_iniciados: totalLeads,

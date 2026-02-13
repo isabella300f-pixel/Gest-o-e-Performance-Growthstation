@@ -66,13 +66,17 @@ export function processPerformanceData(
       return // Skip aggregated rows
     }
 
-    const userId = item.nome.toLowerCase().replace(/\s+/g, '_')
-    const calls = additionalData?.calls?.[userId] || 0
-    const meetings = additionalData?.meetings?.[userId] || { scheduled: 0, completed: 0 }
-    const contracts = additionalData?.contracts?.[userId] || 0
-    const noshow = additionalData?.noshow?.[userId] || 0
-    const closing = additionalData?.closing?.[userId] || 0
-    const leadTime = additionalData?.leadTime?.[userId] || 0
+    // Usar userId da API se disponível, senão gerar a partir do nome
+    const userId = item.userId || item.nome.toLowerCase().replace(/\s+/g, '_')
+    
+    // Buscar dados adicionais usando o userId (pode ser ID real ou nome normalizado)
+    const userIdForData = item.userId || userId
+    const calls = additionalData?.calls?.[userIdForData] ?? additionalData?.calls?.[userId] ?? 0
+    const meetings = additionalData?.meetings?.[userIdForData] ?? additionalData?.meetings?.[userId] ?? { scheduled: 0, completed: 0 }
+    const contracts = additionalData?.contracts?.[userIdForData] ?? additionalData?.contracts?.[userId] ?? 0
+    const noshow = additionalData?.noshow?.[userIdForData] ?? additionalData?.noshow?.[userId] ?? 0
+    const closing = additionalData?.closing?.[userIdForData] ?? additionalData?.closing?.[userId] ?? 0
+    const leadTime = additionalData?.leadTime?.[userIdForData] ?? additionalData?.leadTime?.[userId] ?? 0
 
     const metrics: ProcessedMetrics = {
       calls,
