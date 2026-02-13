@@ -47,22 +47,27 @@ export default function Home() {
         
         if (supabaseError) {
           console.error('Erro ao buscar do Supabase:', supabaseError)
-          setError('Não foi possível buscar dados. A API não está disponível e não há dados salvos.')
+          setError('Não foi possível buscar dados. A API não está disponível e não há dados salvos. Verifique se a variável GROWTHSTATION_API_URL está configurada como https://api.gsengage.com/api/v1 no Vercel.')
         } else if (supabaseData && supabaseData.length > 0) {
           setError(null) // Limpar erro se houver dados do Supabase
-          console.log(`Usando ${supabaseData.length} registros do Supabase`)
+          console.log(`✅ Usando ${supabaseData.length} registros do Supabase`)
         } else {
-          setError('API não retornou dados e não há dados salvos. Verifique a configuração da API do Growthstation.')
+          setError('API não retornou dados e não há dados salvos. Verifique: 1) Se GROWTHSTATION_API_URL está como https://api.gsengage.com/api/v1 no Vercel, 2) Se a API key está correta, 3) Se há prospecções e leads na plataforma.')
         }
         
         setLastSync(new Date())
         return
       }
 
+      console.log(`✅ API retornou ${performanceData.data.length} registros de performance`)
+
       // Processar e salvar no Supabase
       const processed = processPerformanceData(performanceData.data)
+      
+      console.log(`Processando ${processed.individual.length} registros individuais`)
 
       // Salvar dados individuais
+      let savedCount = 0
       for (const item of processed.individual) {
         const performanceRecord: Omit<PerformanceData, 'id' | 'created_at' | 'updated_at'> = {
           user_id: item.userId,
@@ -93,9 +98,13 @@ export default function Home() {
 
         if (dbError) {
           console.error('Error saving to Supabase:', dbError)
+        } else {
+          savedCount++
         }
       }
 
+      console.log(`✅ ${savedCount} registros salvos no Supabase`)
+      setError(null) // Limpar qualquer erro anterior
       setLastSync(new Date())
     } catch (err: any) {
       console.error('Sync error:', err)

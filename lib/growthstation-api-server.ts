@@ -192,7 +192,11 @@ class GrowthstationAPIServer {
         }
       })
 
-      console.log(`Calculated performance for ${performanceData.length} users`)
+      console.log(`✅ Calculated performance for ${performanceData.length} users`)
+      
+      if (performanceData.length === 0) {
+        console.warn('⚠️ Nenhum usuário encontrado. Verifique se há prospecções e leads na plataforma.')
+      }
 
       return {
         data: performanceData,
