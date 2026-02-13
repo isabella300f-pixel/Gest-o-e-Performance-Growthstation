@@ -27,8 +27,12 @@ export default function Home() {
       // Buscar dados da API do Growthstation
       const performanceData = await growthstationAPI.getPerformanceData()
       
+      // Se não houver dados, não é erro crítico - apenas não sincroniza
       if (!performanceData || !performanceData.data || performanceData.data.length === 0) {
-        throw new Error('Nenhum dado retornado da API')
+        console.warn('Nenhum dado retornado da API - pode ser que o endpoint não exista ou esteja temporariamente indisponível')
+        setError('API não retornou dados. Verifique se o endpoint está correto ou se a API está disponível.')
+        setLastSync(new Date())
+        return
       }
 
       // Processar e salvar no Supabase
@@ -71,7 +75,14 @@ export default function Home() {
       setLastSync(new Date())
     } catch (err: any) {
       console.error('Sync error:', err)
-      setError(err.message || 'Erro ao sincronizar dados')
+      // Se for erro de API, mostrar mensagem mais amigável
+      if (err.message?.includes('404') || err.message?.includes('not found')) {
+        setError('Endpoint da API não encontrado. Verifique a configuração da API do Growthstation.')
+      } else if (err.message?.includes('500')) {
+        setError('Erro no servidor ao buscar dados. Tente novamente mais tarde.')
+      } else {
+        setError(err.message || 'Erro ao sincronizar dados')
+      }
     } finally {
       setLoading(false)
     }

@@ -68,14 +68,50 @@ export async function GET(request: Request) {
     const apiUrl = process.env.GROWTHSTATION_API_URL
     const apiKey = process.env.GROWTHSTATION_API_KEY
     
+    if (!apiUrl || !apiKey) {
+      return NextResponse.json(
+        { 
+          error: 'Variáveis de ambiente não configuradas',
+          details: 'GROWTHSTATION_API_URL ou GROWTHSTATION_API_KEY não encontradas',
+          suggestion: 'Configure as variáveis no Vercel Dashboard',
+        },
+        { 
+          status: 500,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+          },
+        }
+      )
+    }
+
     console.log('GET /api/sync - Environment check:', {
       hasApiUrl: !!apiUrl,
       hasApiKey: !!apiKey,
-      apiUrl: apiUrl?.substring(0, 30) + '...',
+      apiUrl: apiUrl?.substring(0, 50),
     })
 
     // Buscar dados da API do Growthstation (server-side)
     const performanceData = await growthstationAPIServer.getPerformanceData()
+
+    // Se não houver dados, retornar estrutura vazia ao invés de erro
+    if (!performanceData || !performanceData.data) {
+      return NextResponse.json(
+        {
+          data: [],
+          message: 'Nenhum dado retornado da API',
+        },
+        {
+          status: 200,
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+          },
+        }
+      )
+    }
 
     return NextResponse.json(performanceData, {
       status: 200,
@@ -91,19 +127,38 @@ export async function GET(request: Request) {
       response: error.response?.data,
       status: error.response?.status,
       url: error.config?.url,
-      stack: error.stack,
     })
     
-    // Retornar erro mais detalhado
+    // Se for 404, significa que o endpoint não existe
+    if (error.response?.status === 404) {
+      return NextResponse.json(
+        { 
+          error: 'Endpoint da API não encontrado',
+          details: 'O endpoint /performance não existe na API do Growthstation',
+          suggestion: 'Verifique a documentação da API ou a URL base',
+          data: [], // Retornar array vazio para não quebrar a aplicação
+        },
+        { 
+          status: 200, // Retornar 200 com dados vazios ao invés de erro
+          headers: {
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+          },
+        }
+      )
+    }
+    
+    // Retornar erro mais detalhado para outros casos
     return NextResponse.json(
       { 
         error: 'Erro ao buscar dados da API',
         details: error.message,
-        apiError: error.response?.data,
         status: error.response?.status,
+        data: [], // Retornar array vazio para não quebrar a aplicação
       },
       { 
-        status: error.response?.status || 500,
+        status: 200, // Retornar 200 com dados vazios ao invés de erro
         headers: {
           'Access-Control-Allow-Origin': '*',
           'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
