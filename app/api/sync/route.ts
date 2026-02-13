@@ -8,8 +8,42 @@ export async function POST(request: Request) {
     // Buscar dados da API do Growthstation (server-side)
     const performanceData = await growthstationAPIServer.getPerformanceData()
 
-    // Processar dados
-    const processed = processPerformanceData(performanceData.data || [])
+    // Processar dados - extrair métricas detalhadas diretamente dos dados da API
+    const performanceItems = performanceData.data || []
+    
+    // Preparar dados adicionais para o processador
+    const additionalData: {
+      calls: Record<string, number>
+      meetings: Record<string, { scheduled: number; completed: number }>
+      contracts: Record<string, number>
+      noshow: Record<string, number>
+      closing: Record<string, number>
+      leadTime: Record<string, number>
+    } = {
+      calls: {},
+      meetings: {},
+      contracts: {},
+      noshow: {},
+      closing: {},
+      leadTime: {},
+    }
+
+    performanceItems.forEach((item) => {
+      const userId = item.nome.toLowerCase().replace(/\s+/g, '_')
+      if (item.calls !== undefined) additionalData.calls[userId] = item.calls
+      if (item.meetingsScheduled !== undefined || item.meetingsCompleted !== undefined) {
+        additionalData.meetings[userId] = {
+          scheduled: item.meetingsScheduled || 0,
+          completed: item.meetingsCompleted || 0,
+        }
+      }
+      if (item.contracts !== undefined) additionalData.contracts[userId] = item.contracts
+      if (item.noshow !== undefined) additionalData.noshow[userId] = item.noshow
+      if (item.closing !== undefined) additionalData.closing[userId] = item.closing
+      if (item.leadTime !== undefined) additionalData.leadTime[userId] = item.leadTime
+    })
+
+    const processed = processPerformanceData(performanceItems, additionalData)
 
     // Salvar no Supabase
     const today = new Date().toISOString().split('T')[0]
@@ -19,10 +53,10 @@ export async function POST(request: Request) {
       date: today,
       daily_activities: item.metrics.dailyActivities,
       on_time: item.metrics.onTime,
-      leads_started: 0,
-      leads_finished: 0,
+      leads_started: performanceItems.find(p => p.nome === item.userName)?.leads_iniciados || 0,
+      leads_finished: performanceItems.find(p => p.nome === item.userName)?.leads_finalizados || 0,
       conversion_rate: item.metrics.conversionRate,
-      earnings: 0,
+      earnings: performanceItems.find(p => p.nome === item.userName)?.ganhos || 0,
       calls: item.metrics.calls,
       meetings_scheduled: item.metrics.meetingsScheduled,
       meetings_completed: item.metrics.meetingsCompleted,

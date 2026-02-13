@@ -11,6 +11,14 @@ export interface GrowthstationPerformance {
   leads_finalizados: number
   taxa_conversao: number
   ganhos: number
+  // Métricas detalhadas adicionais
+  calls?: number
+  meetingsScheduled?: number
+  meetingsCompleted?: number
+  contracts?: number
+  noshow?: number
+  closing?: number
+  leadTime?: number
 }
 
 export interface GrowthstationResponse {
@@ -76,7 +84,8 @@ class GrowthstationAPIServer {
     // A API do GS Engage não tem endpoint /performance
     // Vamos usar prospecções e leads para calcular métricas
     try {
-      console.log('Fetching performance data from GS Engage API...')
+      console.log('📊 Fetching performance data from GS Engage API...')
+      console.log('API URL:', this.baseURL)
       
       // Buscar prospecções para calcular métricas
       const prospectionsResponse = await this.request<any>('/prospections', {
@@ -93,24 +102,40 @@ class GrowthstationAPIServer {
       const prospections = prospectionsResponse?.data || []
       const leads = leadsResponse?.data || []
 
-      console.log(`Found ${prospections.length} prospections and ${leads.length} leads`)
+      console.log(`✅ Found ${prospections.length} prospections and ${leads.length} leads`)
+
+      if (prospections.length === 0) {
+        console.warn('⚠️ Nenhuma prospecção encontrada. A API retornou dados vazios.')
+        return { data: [] }
+      }
 
       // Agrupar por responsável
       const byUser: Record<string, {
         userName: string
+        userId: string
         prospections: any[]
         leads: any[]
-        activities: {
+        metrics: {
           calls: number
-          meetings: number
-          emails: number
+          meetingsScheduled: number
+          meetingsCompleted: number
+          contracts: number
+          noshow: number
+          closing: number
+          activeProspections: number
+          finishedProspections: number
+          wonProspections: number
+          lostProspections: number
         }
       }> = {}
 
       // Processar prospecções
       prospections.forEach((prospection: any) => {
         const responsible = prospection.responsible
-        if (!responsible) return
+        if (!responsible) {
+          console.warn('⚠️ Prospecção sem responsável:', prospection.id)
+          return
+        }
 
         const userId = responsible.id
         const userName = `${responsible.firstName || ''} ${responsible.lastName || ''}`.trim() || responsible.email || 'Unknown'
@@ -118,17 +143,53 @@ class GrowthstationAPIServer {
         if (!byUser[userId]) {
           byUser[userId] = {
             userName,
+            userId,
             prospections: [],
             leads: [],
-            activities: {
+            metrics: {
               calls: 0,
-              meetings: 0,
-              emails: 0,
+              meetingsScheduled: 0,
+              meetingsCompleted: 0,
+              contracts: 0,
+              noshow: 0,
+              closing: 0,
+              activeProspections: 0,
+              finishedProspections: 0,
+              wonProspections: 0,
+              lostProspections: 0,
             },
           }
         }
 
         byUser[userId].prospections.push(prospection)
+
+        // Contar meetings baseado no campo meeting da prospecção
+        if (prospection.meeting) {
+          byUser[userId].metrics.meetingsScheduled += 1
+          // Se a prospecção está finalizada e tinha meeting, consideramos como completed
+          if (prospection.status === 'FINISHED' || prospection.status === 'CLOSED' || prospection.status === 'WON') {
+            byUser[userId].metrics.meetingsCompleted += 1
+          }
+        }
+
+        // Contar status
+        const status = prospection.status?.toUpperCase() || ''
+        if (status === 'ACTIVE') {
+          byUser[userId].metrics.activeProspections += 1
+        } else if (status === 'FINISHED' || status === 'CLOSED') {
+          byUser[userId].metrics.finishedProspections += 1
+        } else if (status === 'WON') {
+          byUser[userId].metrics.wonProspections += 1
+          byUser[userId].metrics.contracts += 1 // WON = contrato gerado
+          byUser[userId].metrics.closing += 1
+        } else if (status === 'LOST') {
+          byUser[userId].metrics.lostProspections += 1
+          // Verificar se foi no-show baseado no lostReason
+          const lostReason = prospection.lostReason?.toLowerCase() || ''
+          if (lostReason.includes('no-show') || lostReason.includes('no show') || lostReason.includes('ausente')) {
+            byUser[userId].metrics.noshow += 1
+          }
+        }
       })
 
       // Processar leads
@@ -139,56 +200,64 @@ class GrowthstationAPIServer {
         }
       })
 
-      // Buscar atividades de cada prospecção (limitado para não sobrecarregar)
-      const activityPromises = Object.values(byUser).slice(0, 10).map(async (user) => {
-        for (const prospection of user.prospections.slice(0, 5)) {
-          try {
-            const activities = await this.request<any>(`/prospections/${prospection.id}/activities`, {
-              limit: 100,
-            })
-            
-            // Contar tipos de atividades
-            const activityList = activities?.data || []
-            activityList.forEach((activity: any) => {
-              const type = activity.type?.toLowerCase() || ''
-              if (type.includes('call') || type.includes('ligação')) {
-                user.activities.calls += 1
-              } else if (type.includes('meeting') || type.includes('reunião')) {
-                user.activities.meetings += 1
-              } else if (type.includes('email')) {
-                user.activities.emails += 1
-              }
-            })
-          } catch (err) {
-            // Ignorar erros ao buscar atividades individuais
-            console.warn(`Could not fetch activities for prospection ${prospection.id}`)
-          }
-        }
-      })
-
-      // Aguardar algumas buscas de atividades (não todas para não demorar muito)
-      await Promise.all(activityPromises.slice(0, 3))
+      console.log(`📈 Processed data for ${Object.keys(byUser).length} users`)
 
       // Converter para formato esperado
       const performanceData: GrowthstationPerformance[] = Object.values(byUser).map((user) => {
-        const finishedProspections = user.prospections.filter((p: any) => 
-          p.status === 'FINISHED' || p.status === 'CLOSED' || p.status === 'WON'
-        )
-        const activeProspections = user.prospections.filter((p: any) => p.status === 'ACTIVE')
-        
-        // Calcular métricas
         const totalLeads = user.leads.length
-        const finishedCount = finishedProspections.length
+        const finishedCount = user.metrics.finishedProspections + user.metrics.wonProspections
         const conversionRate = totalLeads > 0 ? (finishedCount / totalLeads) * 100 : 0
+        
+        // Atividades diárias = prospecções ativas + calls estimados + meetings
+        // Estimamos calls baseado no número de prospecções (cada prospecção geralmente tem múltiplas ligações)
+        const estimatedCalls = user.prospections.length * 2 // Estimativa: 2 calls por prospecção
+        const dailyActivities = user.metrics.activeProspections + estimatedCalls + user.metrics.meetingsScheduled
+
+        // Calcular lead time médio (diferença entre startDate e endDate das prospecções finalizadas)
+        let totalLeadTime = 0
+        let leadTimeCount = 0
+        user.prospections.forEach((p: any) => {
+          if (p.startDate && p.endDate && (p.status === 'FINISHED' || p.status === 'CLOSED' || p.status === 'WON')) {
+            const start = new Date(p.startDate).getTime()
+            const end = new Date(p.endDate).getTime()
+            const hours = (end - start) / (1000 * 60 * 60) // Converter para horas
+            if (hours > 0 && hours < 8760) { // Validar: entre 0 e 1 ano
+              totalLeadTime += hours
+              leadTimeCount += 1
+            }
+          }
+        })
+        const avgLeadTime = leadTimeCount > 0 ? totalLeadTime / leadTimeCount : 0
+
+        console.log(`👤 ${user.userName}:`, {
+          prospections: user.prospections.length,
+          leads: totalLeads,
+          calls: estimatedCalls,
+          meetings: user.metrics.meetingsScheduled,
+          meetingsCompleted: user.metrics.meetingsCompleted,
+          contracts: user.metrics.contracts,
+          noshow: user.metrics.noshow,
+          closing: user.metrics.closing,
+          leadTime: avgLeadTime.toFixed(1) + 'h',
+          conversionRate: conversionRate.toFixed(2) + '%',
+        })
         
         return {
           nome: user.userName,
-          atividades_diarias: activeProspections.length + user.activities.calls + user.activities.meetings,
+          atividades_diarias: dailyActivities,
           on_time: 95, // Placeholder - será calculado quando houver dados de atividades com timestamps
           leads_iniciados: totalLeads,
           leads_finalizados: finishedCount,
           taxa_conversao: conversionRate,
-          ganhos: finishedProspections.filter((p: any) => p.status === 'WON').length, // Assumindo que WON = ganho
+          ganhos: user.metrics.contracts,
+          // Métricas detalhadas
+          calls: estimatedCalls,
+          meetingsScheduled: user.metrics.meetingsScheduled,
+          meetingsCompleted: user.metrics.meetingsCompleted,
+          contracts: user.metrics.contracts,
+          noshow: user.metrics.noshow,
+          closing: user.metrics.closing,
+          leadTime: avgLeadTime,
         }
       })
 
@@ -196,16 +265,19 @@ class GrowthstationAPIServer {
       
       if (performanceData.length === 0) {
         console.warn('⚠️ Nenhum usuário encontrado. Verifique se há prospecções e leads na plataforma.')
+      } else {
+        console.log('📊 Performance data sample:', performanceData.slice(0, 2))
       }
 
       return {
         data: performanceData,
       }
     } catch (error: any) {
-      console.error('Error getting performance data:', {
+      console.error('❌ Error getting performance data:', {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
+        stack: error.stack,
       })
       throw error
     }
