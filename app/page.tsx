@@ -3,154 +3,97 @@
 import { useEffect, useState } from 'react'
 import Dashboard from '@/components/Dashboard'
 import { supabase } from '@/lib/supabase'
-import { growthstationAPI } from '@/lib/growthstation-api'
-import { processPerformanceData } from '@/lib/data-processor'
-import { PerformanceData } from '@/lib/supabase'
 
 export default function Home() {
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
   const [lastSync, setLastSync] = useState<Date | null>(null)
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle')
 
   useEffect(() => {
-    syncData()
-    // Sincronizar a cada 5 minutos
-    const interval = setInterval(syncData, 5 * 60 * 1000)
+    // Carregar última data de sincronização do Supabase
+    loadLastSync()
+    
+    // Sincronizar em background ao carregar (sem bloquear UI)
+    syncInBackground()
+    
+    // Sincronizar a cada 10 minutos em background
+    const interval = setInterval(syncInBackground, 10 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])
 
-  const syncData = async () => {
+  const loadLastSync = async () => {
     try {
-      setLoading(true)
-      setError(null)
-
-      // Buscar dados da API do Growthstation
-      let performanceData
-      try {
-        console.log('🔄 Buscando dados da API...')
-        performanceData = await growthstationAPI.getPerformanceData()
-        console.log('📊 Dados recebidos:', {
-          hasData: !!performanceData,
-          hasDataArray: !!performanceData?.data,
-          dataLength: performanceData?.data?.length || 0,
-        })
-      } catch (apiError: any) {
-        console.error('❌ Erro ao buscar da API:', {
-          message: apiError.message,
-          stack: apiError.stack,
-        })
-        // Continuar - vamos usar dados do Supabase como fallback
-        performanceData = null
-      }
+      // Buscar a data mais recente dos dados salvos
+      const { data, error } = await supabase
+        .from('performance_data')
+        .select('updated_at')
+        .order('updated_at', { ascending: false })
+        .limit(1)
       
-      // Se não houver dados da API, usar dados já salvos no Supabase
-      if (!performanceData || !performanceData.data || performanceData.data.length === 0) {
-        console.warn('⚠️ Nenhum dado retornado da API - usando dados do Supabase como fallback', {
-          performanceData,
-          hasData: !!performanceData,
-          dataLength: performanceData?.data?.length || 0,
-        })
-        
-        // Buscar dados mais recentes do Supabase
-        const { data: supabaseData, error: supabaseError } = await supabase
-          .from('performance_data')
-          .select('*')
-          .order('date', { ascending: false })
-          .limit(100)
-        
-        if (supabaseError) {
-          console.error('Erro ao buscar do Supabase:', supabaseError)
-          setError('Não foi possível buscar dados. A API não está disponível e não há dados salvos. Verifique se a variável GROWTHSTATION_API_URL está configurada como https://api.gsengage.com/api/v1 no Vercel.')
-        } else if (supabaseData && supabaseData.length > 0) {
-          setError(null) // Limpar erro se houver dados do Supabase
-          console.log(`✅ Usando ${supabaseData.length} registros do Supabase`)
-        } else {
-          setError('API não retornou dados e não há dados salvos. Verifique: 1) Se GROWTHSTATION_API_URL está como https://api.gsengage.com/api/v1 no Vercel, 2) Se a API key está correta, 3) Se há prospecções e leads na plataforma.')
-        }
-        
-        setLastSync(new Date())
-        return
+      if (!error && data && data.length > 0) {
+        setLastSync(new Date(data[0].updated_at))
       }
-
-      console.log(`✅ API retornou ${performanceData.data.length} registros de performance`)
-
-      // Processar e salvar no Supabase
-      const processed = processPerformanceData(performanceData.data)
-      
-      console.log(`Processando ${processed.individual.length} registros individuais`)
-
-      // Salvar dados individuais
-      let savedCount = 0
-      for (const item of processed.individual) {
-        const performanceRecord: Omit<PerformanceData, 'id' | 'created_at' | 'updated_at'> = {
-          user_id: item.userId,
-          user_name: item.userName,
-          date: new Date().toISOString().split('T')[0],
-          daily_activities: item.metrics.dailyActivities,
-          on_time: item.metrics.onTime,
-          leads_started: 0, // Será preenchido quando disponível na API
-          leads_finished: 0,
-          conversion_rate: item.metrics.conversionRate,
-          earnings: 0,
-          calls: item.metrics.calls,
-          meetings_scheduled: item.metrics.meetingsScheduled,
-          meetings_completed: item.metrics.meetingsCompleted,
-          contracts_generated: item.metrics.contractsGenerated,
-          noshow: item.metrics.noshow,
-          closing: item.metrics.closing,
-          lead_time: item.metrics.leadTime,
-        }
-
-        // Upsert no Supabase
-        const { error: dbError } = await supabase
-          .from('performance_data')
-          .upsert(performanceRecord, {
-            onConflict: 'user_id,date',
-            ignoreDuplicates: false,
-          })
-
-        if (dbError) {
-          console.error('Error saving to Supabase:', dbError)
-        } else {
-          savedCount++
-        }
-      }
-
-      console.log(`✅ ${savedCount} registros salvos no Supabase`)
-      setError(null) // Limpar qualquer erro anterior
-      setLastSync(new Date())
-    } catch (err: any) {
-      console.error('Sync error:', err)
-      
-      // Tentar buscar dados do Supabase como fallback
-      try {
-        const { data: supabaseData } = await supabase
-          .from('performance_data')
-          .select('*')
-          .order('date', { ascending: false })
-          .limit(100)
-        
-        if (supabaseData && supabaseData.length > 0) {
-          setError(null) // Limpar erro se houver dados do Supabase
-          console.log(`Usando ${supabaseData.length} registros do Supabase como fallback`)
-          setLastSync(new Date())
-          return
-        }
-      } catch (supabaseError) {
-        console.error('Erro ao buscar do Supabase:', supabaseError)
-      }
-      
-      // Se for erro de API, mostrar mensagem mais amigável
-      if (err.message?.includes('404') || err.message?.includes('not found')) {
-        setError('Endpoint da API não encontrado. Usando dados salvos anteriormente, se disponíveis.')
-      } else if (err.message?.includes('500')) {
-        setError('Erro no servidor ao buscar dados. Usando dados salvos anteriormente, se disponíveis.')
-      } else {
-        setError(err.message || 'Erro ao sincronizar dados. Verificando dados salvos...')
-      }
-    } finally {
-      setLoading(false)
+    } catch (err) {
+      console.error('Erro ao carregar última sincronização:', err)
     }
+  }
+
+  const syncInBackground = async () => {
+    // Não bloquear a UI - sincronização em background
+    setSyncing(true)
+    setSyncStatus('syncing')
+    setSyncError(null)
+
+    try {
+      console.log('🔄 Iniciando sincronização em background...')
+      
+      // Usar a rota POST /api/sync que já processa e salva no Supabase
+      const response = await fetch('/api/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.error || `Erro ${response.status}: ${response.statusText}`)
+      }
+
+      const result = await response.json()
+      console.log('✅ Sincronização concluída:', result)
+      
+      setSyncStatus('success')
+      setLastSync(new Date())
+      setSyncError(null)
+      
+      // Atualizar dados do Dashboard após 1 segundo (dar tempo para o Supabase processar)
+      setTimeout(() => {
+        // O Dashboard já recarrega automaticamente quando os dados mudam
+        window.dispatchEvent(new Event('supabase:refresh'))
+      }, 1000)
+      
+    } catch (err: any) {
+      console.error('❌ Erro na sincronização:', err)
+      setSyncStatus('error')
+      setSyncError(err.message || 'Erro ao sincronizar dados')
+      
+      // Não mostrar erro crítico - a aplicação continua funcionando com dados do Supabase
+      console.warn('⚠️ Sincronização falhou, mas a aplicação continua com dados do Supabase')
+    } finally {
+      setSyncing(false)
+      // Resetar status após 3 segundos
+      setTimeout(() => {
+        if (syncStatus === 'success' || syncStatus === 'error') {
+          setSyncStatus('idle')
+        }
+      }, 3000)
+    }
+  }
+
+  const handleManualSync = async () => {
+    await syncInBackground()
   }
 
   return (
@@ -176,20 +119,39 @@ export default function Home() {
               <div className="text-right">
                 {lastSync && (
                   <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                    <span>Última atualização: {lastSync.toLocaleTimeString('pt-BR')}</span>
+                    <div className={`w-2 h-2 rounded-full ${
+                      syncStatus === 'syncing' ? 'bg-yellow-500 animate-pulse' :
+                      syncStatus === 'success' ? 'bg-green-500' :
+                      syncStatus === 'error' ? 'bg-red-500' :
+                      'bg-green-500'
+                    }`}></div>
+                    <span>
+                      {syncStatus === 'syncing' && 'Sincronizando...'}
+                      {syncStatus === 'success' && `Atualizado: ${lastSync.toLocaleTimeString('pt-BR')}`}
+                      {syncStatus === 'error' && 'Erro na sincronização'}
+                      {syncStatus === 'idle' && `Última atualização: ${lastSync.toLocaleTimeString('pt-BR')}`}
+                    </span>
                   </div>
                 )}
               </div>
               <button
-                onClick={syncData}
-                disabled={loading}
-                className="px-5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-lg hover:from-primary-700 hover:to-primary-800 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-md transition-all duration-200 flex items-center gap-2"
+                onClick={handleManualSync}
+                disabled={syncing}
+                className={`px-5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-700 text-white rounded-lg hover:from-primary-700 hover:to-primary-800 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-md transition-all duration-200 flex items-center gap-2 ${
+                  syncStatus === 'success' ? 'bg-green-600' : ''
+                }`}
               >
-                {loading ? (
+                {syncing ? (
                   <>
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                     <span>Sincronizando...</span>
+                  </>
+                ) : syncStatus === 'success' ? (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Sincronizado</span>
                   </>
                 ) : (
                   <>
@@ -206,14 +168,19 @@ export default function Home() {
       </header>
 
       <div className="container mx-auto px-4 py-6">
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-r-lg shadow-sm">
+        {syncError && syncStatus === 'error' && (
+          <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-500 text-yellow-800 rounded-r-lg shadow-sm">
             <div className="flex items-center gap-2">
               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
               </svg>
-              <span className="font-medium">Erro ao sincronizar:</span>
-              <span>{error}</span>
+              <div>
+                <span className="font-medium">Aviso de sincronização:</span>
+                <span className="ml-2">{syncError}</span>
+                <p className="text-sm mt-1 text-yellow-700">
+                  A aplicação está funcionando com dados salvos anteriormente. Os dados serão atualizados quando a sincronização for bem-sucedida.
+                </p>
+              </div>
             </div>
           </div>
         )}

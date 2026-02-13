@@ -23,11 +23,22 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadData()
+    
+    // Escutar evento de refresh do Supabase
+    const handleRefresh = () => {
+      console.log('🔄 Recarregando dados após sincronização...')
+      loadData()
+    }
+    
+    window.addEventListener('supabase:refresh', handleRefresh)
+    return () => window.removeEventListener('supabase:refresh', handleRefresh)
   }, [dateRange])
 
   const loadData = async () => {
     try {
       setLoading(true)
+      console.log('📊 Carregando dados do Supabase...', { start: dateRange.start, end: dateRange.end })
+      
       const { data: performanceData, error } = await supabase
         .from('performance_data')
         .select('*')
@@ -35,10 +46,45 @@ export default function Dashboard() {
         .lte('date', dateRange.end)
         .order('date', { ascending: false })
 
-      if (error) throw error
+      if (error) {
+        console.error('❌ Erro ao buscar do Supabase:', error)
+        throw error
+      }
+      
+      console.log(`✅ ${performanceData?.length || 0} registros carregados do Supabase`)
       setData(performanceData || [])
+      
+      // Se não houver dados no período, buscar dados mais recentes disponíveis
+      if (!performanceData || performanceData.length === 0) {
+        console.warn('⚠️ Nenhum dado no período selecionado. Buscando dados mais recentes...')
+        const { data: recentData } = await supabase
+          .from('performance_data')
+          .select('*')
+          .order('date', { ascending: false })
+          .limit(100)
+        
+        if (recentData && recentData.length > 0) {
+          console.log(`✅ Usando ${recentData.length} registros mais recentes disponíveis`)
+          setData(recentData)
+        }
+      }
     } catch (error: any) {
-      console.error('Error loading data:', error)
+      console.error('❌ Erro ao carregar dados:', error)
+      // Tentar buscar dados sem filtro de data como fallback
+      try {
+        const { data: fallbackData } = await supabase
+          .from('performance_data')
+          .select('*')
+          .order('date', { ascending: false })
+          .limit(100)
+        
+        if (fallbackData && fallbackData.length > 0) {
+          console.log(`✅ Usando ${fallbackData.length} registros como fallback`)
+          setData(fallbackData)
+        }
+      } catch (fallbackError) {
+        console.error('❌ Erro no fallback:', fallbackError)
+      }
     } finally {
       setLoading(false)
     }

@@ -4,6 +4,9 @@ import { supabase } from '@/lib/supabase'
 import { processPerformanceData } from '@/lib/data-processor'
 
 export async function POST(request: Request) {
+  let savedCount = 0
+  let errorMessage: string | null = null
+  
   try {
     // Extrair parâmetros de body para filtros de data (se fornecidos)
     let dateFrom: string | undefined
@@ -20,12 +23,41 @@ export async function POST(request: Request) {
     // Buscar dados da API do Growthstation (server-side)
     console.log('📡 POST /api/sync - Iniciando sincronização...', { dateFrom, dateTo })
     const startTime = Date.now()
-    const performanceData = await growthstationAPIServer.getPerformanceData(dateFrom, dateTo)
-    const executionTime = Date.now() - startTime
-    console.log(`⏱️ Tempo de execução: ${executionTime}ms`)
+    
+    let performanceData
+    try {
+      performanceData = await growthstationAPIServer.getPerformanceData(dateFrom, dateTo)
+      const executionTime = Date.now() - startTime
+      console.log(`⏱️ Tempo de execução: ${executionTime}ms`)
+    } catch (apiError: any) {
+      console.error('❌ Erro ao buscar da API:', apiError)
+      errorMessage = apiError.message || 'Erro ao buscar dados da API'
+      // Retornar erro mas não falhar completamente - pode haver dados antigos no Supabase
+      return NextResponse.json(
+        { 
+          success: false,
+          error: errorMessage,
+          message: 'Não foi possível buscar dados da API, mas a aplicação continua funcionando com dados salvos anteriormente.',
+          recordsCount: 0,
+        },
+        { status: 200 } // Retornar 200 para não quebrar o frontend
+      )
+    }
+
+    // Verificar se há dados para processar
+    if (!performanceData || !performanceData.data || performanceData.data.length === 0) {
+      console.warn('⚠️ Nenhum dado retornado da API')
+      return NextResponse.json({
+        success: false,
+        message: 'Nenhum dado retornado da API. A aplicação continua funcionando com dados salvos anteriormente.',
+        recordsCount: 0,
+      }, { status: 200 })
+    }
+
+    console.log(`✅ API retornou ${performanceData.data.length} registros`)
 
     // Processar dados - extrair métricas detalhadas diretamente dos dados da API
-    const performanceItems = performanceData.data || []
+    const performanceItems = performanceData.data
     
     // Preparar dados adicionais para o processador
     const additionalData: {
@@ -60,6 +92,7 @@ export async function POST(request: Request) {
     })
 
     const processed = processPerformanceData(performanceItems, additionalData)
+    console.log(`📊 Processando ${processed.individual.length} registros individuais`)
 
     // Salvar no Supabase
     const today = new Date().toISOString().split('T')[0]
@@ -82,32 +115,50 @@ export async function POST(request: Request) {
       lead_time: item.metrics.leadTime,
     }))
 
+    console.log(`💾 Salvando ${records.length} registros no Supabase...`)
+
     // Upsert no Supabase
-    const { error } = await supabase
+    const { error: supabaseError, data: supabaseResult } = await supabase
       .from('performance_data')
       .upsert(records, {
         onConflict: 'user_id,date',
         ignoreDuplicates: false,
       })
 
-    if (error) {
-      console.error('Supabase error:', error)
+    if (supabaseError) {
+      console.error('❌ Erro ao salvar no Supabase:', supabaseError)
       return NextResponse.json(
-        { error: 'Erro ao salvar no Supabase', details: error.message },
-        { status: 500 }
+        { 
+          success: false,
+          error: 'Erro ao salvar no Supabase', 
+          details: supabaseError.message,
+          recordsCount: 0,
+        },
+        { status: 200 } // Retornar 200 para não quebrar o frontend
       )
     }
+
+    savedCount = records.length
+    console.log(`✅ ${savedCount} registros salvos com sucesso no Supabase`)
 
     return NextResponse.json({
       success: true,
       message: 'Dados sincronizados com sucesso',
-      recordsCount: records.length,
+      recordsCount: savedCount,
     })
   } catch (error: any) {
-    console.error('Sync error:', error)
+    console.error('❌ Erro geral na sincronização:', error)
     return NextResponse.json(
-      { error: 'Erro ao sincronizar dados', details: error.message },
-      { status: 500 }
+      { 
+        success: false,
+        error: 'Erro ao sincronizar dados', 
+        details: error.message,
+        recordsCount: savedCount,
+        message: savedCount > 0 
+          ? `Alguns dados foram salvos (${savedCount} registros), mas ocorreu um erro.`
+          : 'Não foi possível sincronizar dados. A aplicação continua funcionando com dados salvos anteriormente.',
+      },
+      { status: 200 } // Retornar 200 para não quebrar o frontend
     )
   }
 }
