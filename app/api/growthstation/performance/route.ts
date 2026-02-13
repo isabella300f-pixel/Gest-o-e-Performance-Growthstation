@@ -6,6 +6,8 @@ const API_KEY = process.env.GROWTHSTATION_API_KEY || '8bc7f25d967d79bd55d8e0acab
 
 export async function GET(request: NextRequest) {
   try {
+    console.log('Growthstation API Proxy: GET /api/growthstation/performance')
+    
     const searchParams = request.nextUrl.searchParams
     const dateFrom = searchParams.get('dateFrom')
     const dateTo = searchParams.get('dateTo')
@@ -17,12 +19,17 @@ export async function GET(request: NextRequest) {
     if (dateFrom) params.dateFrom = dateFrom
     if (dateTo) params.dateTo = dateTo
 
+    console.log('Calling Growthstation API:', `${API_URL}/performance`, params)
+
     const response = await axios.get(`${API_URL}/performance`, {
       params,
       headers: {
         'Content-Type': 'application/json',
       },
+      timeout: 30000, // 30 segundos
     })
+
+    console.log('Growthstation API Response:', response.status)
 
     return NextResponse.json(response.data, {
       status: 200,
@@ -33,13 +40,19 @@ export async function GET(request: NextRequest) {
       },
     })
   } catch (error: any) {
-    console.error('Growthstation API Proxy Error:', error.response?.data || error.message)
+    console.error('Growthstation API Proxy Error:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+      url: error.config?.url,
+    })
     
     return NextResponse.json(
       {
         error: 'Erro ao buscar dados da API',
         message: error.response?.data?.message || error.message,
         details: error.response?.data,
+        status: error.response?.status,
       },
       {
         status: error.response?.status || 500,
