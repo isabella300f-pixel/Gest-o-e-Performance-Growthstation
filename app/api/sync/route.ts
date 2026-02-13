@@ -62,7 +62,25 @@ export async function POST(request: Request) {
   }
 }
 
-export async function GET() {
-  return NextResponse.json({ message: 'Use POST to sync data' })
+export async function GET(request: Request) {
+  try {
+    // Buscar dados da API do Growthstation (server-side)
+    const performanceData = await growthstationAPIServer.getPerformanceData()
+
+    return NextResponse.json(performanceData, {
+      status: 200,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+    })
+  } catch (error: any) {
+    console.error('Sync GET error:', error)
+    return NextResponse.json(
+      { error: 'Erro ao buscar dados da API', details: error.message },
+      { status: 500 }
+    )
+  }
 }
 

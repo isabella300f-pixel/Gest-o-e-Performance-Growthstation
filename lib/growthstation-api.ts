@@ -19,21 +19,10 @@ export interface GrowthstationResponse {
 class GrowthstationAPI {
   private async request<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
     try {
-      // Usar API route do Next.js (server-side proxy) para evitar CORS
-      // No cliente, sempre usa caminho relativo que será resolvido para o mesmo domínio
-      const basePath = '/api/growthstation'
-      let url: string
+      // Usar rota /api/sync que já existe e funciona (GET retorna dados, POST sincroniza)
+      const url = '/api/sync'
       
-      if (typeof window !== 'undefined') {
-        // No cliente: usar caminho relativo (mesmo domínio)
-        url = `${basePath}${endpoint}`
-      } else {
-        // No servidor: usar URL completa se disponível
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-        url = `${baseUrl}${basePath}${endpoint}`
-      }
-      
-      // Adicionar parâmetros de query
+      // Adicionar parâmetros de query se necessário
       let finalUrl = url
       if (params && Object.keys(params).length > 0) {
         const searchParams = new URLSearchParams()
